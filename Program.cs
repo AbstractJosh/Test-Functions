@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using Spire.Pdf;
-using WF = System.Windows.Forms; // alias to avoid name clashes
+using WF = System.Windows.Forms;
 
 internal static class Program
 {
@@ -14,38 +14,19 @@ internal static class Program
         {
             Title = "Select PDF file(s) to convert",
             Filter = "PDF files (*.pdf)|*.pdf",
-            Multiselect = true,
-            CheckFileExists = true,
-            CheckPathExists = true
+            Multiselect = true
         };
 
-        if (dialog.ShowDialog() != WF.DialogResult.OK)
-        {
-            Console.WriteLine("No files selected. Exiting.");
-            return;
-        }
-
-        int success = 0, fail = 0;
+        if (dialog.ShowDialog() != WF.DialogResult.OK) return;
 
         foreach (var pdfPath in dialog.FileNames)
         {
-            try
-            {
-                var outPath = GetUniqueOutputPath(pdfPath);
-                using var doc = new PdfDocument();
-                doc.LoadFromFile(pdfPath);
-                doc.SaveToFile(outPath, FileFormat.DOCX);
-                Console.WriteLine($"✔ {Path.GetFileName(pdfPath)} -> {Path.GetFileName(outPath)}");
-                success++;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"✖ {Path.GetFileName(pdfPath)}  {ex.Message}");
-                fail++;
-            }
+            var outPath = GetUniqueOutputPath(pdfPath);
+            using var doc = new PdfDocument();
+            doc.LoadFromFile(pdfPath);
+            doc.SaveToFile(outPath, FileFormat.DOCX);
+            Console.WriteLine($"{Path.GetFileName(pdfPath)} → {Path.GetFileName(outPath)}");
         }
-
-        Console.WriteLine($"\nDone. Success: {success}, Failed: {fail}");
     }
 
     private static string GetUniqueOutputPath(string pdfPath)
