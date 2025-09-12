@@ -1,60 +1,56 @@
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using DocumentFormat.OpenXml.Packaging;
-using DocumentFormat.OpenXml.Wordprocessing;
 using OpenXmlPowerTools;
 
 public static class DocxCleaner
 {
-    // Removes ALL occurrences of "placeholder" in body, headers, footers,
-    // comments, footnotes, endnotes, and text boxes.
-    public static void RemoveTextFromDocument(string filePath)
+    // NuGet: DocumentFormat.OpenXml, OpenXmlPowerTools
+    public static void RemoveTextFromDocument(string filePath, string textToRemove = "placeholder", bool caseSensitive = false)
     {
         using var doc = WordprocessingDocument.Open(filePath, true);
 
-        // Build a case-insensitive pattern for the exact text "placeholder".
-        var pattern = new Regex(Regex.Escape("placeholder"), RegexOptions.IgnoreCase);
+        // Optional: normalize content so words aren't split oddly across runs
+        MarkupSimplifier.SimplifyMarkup(doc, new SimplifyMarkupSettings
+        {
+            AcceptRevisions = true,
+            RemoveComments = true,
+            RemoveRsidInfo = true,
+            RemoveSoftHyphens = true,
+            RemoveBookmarks = false,
+            RemoveFieldCodes = false
+        });
+
+        // Build regex (ignore case by default)
+        var options = caseSensitive ? RegexOptions.None : RegexOptions.IgnoreCase;
+        var pattern = new Regex(Regex.Escape(textToRemove), options);
+
+        // w namespace
+        XNamespace w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+        // Local helper to replace in any part
+        void ReplaceInPart(OpenXmlPart part)
+        {
+            if (part == null) return;
+            var xDoc = part.GetXDocument();
+            if (xDoc?.Root == null) return;
+
+            // Replace inside all text nodes <w:t>
+            OpenXmlRegex.Replace(xDoc.Root.Descendants(w + "t"), pattern, string.Empty, null);
+
+            part.PutXDocument();
+        }
 
         // Body
-        OpenXmlRegex.Replace(doc.MainDocumentPart.Document.Body, pattern, string.Empty, null);
+        ReplaceInPart(doc.MainDocumentPart);
 
         // Headers / Footers
-        foreach (var hp in doc.MainDocumentPart.HeaderParts)
-            OpenXmlRegex.Replace(hp.Header, pattern, string.Empty, null);
+        foreach (var hp in doc.MainDocumentPart.HeaderParts) ReplaceInPart(hp);
+        foreach (var fp in doc.MainDocumentPart.FooterParts) ReplaceInPart(fp);
 
-        foreach (var fp in doc.MainDocumentPart.FooterParts)
-            OpenXmlRegex.Replace(fp.Footer, pattern, string.Empty, null);
-
-        // Footnotes / Endnotes
-        var fn = doc.MainDocumentPart.FootnotesPart?.Footnotes;
-        if (fn != null) OpenXmlRegex.Replace(fn, pattern, string.Empty, null);
-
-        var en = doc.MainDocumentPart.EndnotesPart?.Endnotes;
-        if (en != null) OpenXmlRegex.Replace(en, pattern, string.Empty, null);
-
-        // Comments
-        var comments = doc.MainDocumentPart.WordprocessingCommentsPart?.Comments;
-        if (comments != null) OpenXmlRegex.Replace(comments, pattern, string.Empty, null);
-
-        // Text inside shapes/text boxes (w:txbxContent) in all parts
-        void ReplaceInTextBoxes(OpenXmlPartContainer container)
-        {
-            foreach (var rel in container.Parts)
-            {
-                var root = rel.OpenXmlPart.RootElement;
-                if (root == null) continue;
-
-                foreach (var tx in root.Descendants<TextBoxContent>())
-                    OpenXmlRegex.Replace(tx, pattern, string.Empty, null);
-            }
-        }
-        ReplaceInTextBoxes(doc.MainDocumentPart);
-
-        // Save changes
-        doc.MainDocumentPart.Document.Save();
-        foreach (var hp in doc.MainDocumentPart.HeaderParts) hp.Header.Save();
-        foreach (var fp in doc.MainDocumentPart.FooterParts) fp.Footer.Save();
-        if (fn != null) doc.MainDocumentPart.FootnotesPart!.Footnotes!.Save();
-        if (en != null) doc.MainDocumentPart.EndnotesPart!.Endnotes!.Save();
-        if (comments != null) doc.MainDocumentPart.WordprocessingCommentsPart!.Comments!.Save();
+        // Footnotes / Endnotes / Comments
+        if (doc.MainDocumentPart.FootnotesPart != null) ReplaceInPart(doc.MainDocumentPart.FootnotesPart);
+        if (doc.MainDocumentPart.EndnotesPart  != null) ReplaceInPart(doc.MainDocumentPart.EndnotesPart);
+        if (doc.MainDocumentPart.WordprocessingCommentsPart != null) ReplaceInPart(doc.MainDocumentPart.WordprocessingCommentsPart);
     }
 }
